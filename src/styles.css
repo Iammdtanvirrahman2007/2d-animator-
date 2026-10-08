@@ -1301,7 +1301,7 @@ input[type="range"] {
 }
 
 .timeline-topline {
-  height: 43px;
+  height: calc(43px * var(--timeline-scale));
   flex: 0 0 43px;
   display: flex;
   align-items: center;
@@ -1343,7 +1343,8 @@ input[type="range"] {
 }
 
 .transport-button,
-.timeline-icon-action {
+.timeline-icon-action,
+.timeline-jump-button {
   width: 27px;
   height: 27px;
   border-radius: 4px;
@@ -1352,7 +1353,8 @@ input[type="range"] {
 }
 
 .transport-button:disabled,
-.timeline-icon-action:disabled {
+.timeline-icon-action:disabled,
+.timeline-jump-button:disabled {
   color: #64716b;
   opacity: 0.5;
 }
@@ -1375,6 +1377,67 @@ input[type="range"] {
 .play-button.is-playing {
   color: #f2ddd2;
   background: #865a49;
+}
+
+.timeline-jump-button {
+  min-width: 28px;
+  height: 27px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #aab5ac;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 8px;
+}
+
+.timeline-jump-button:hover:not(:disabled) {
+  color: #e3e9e1;
+  background: #33403b;
+  border-color: #4a5952;
+}
+
+.frame-number-control,
+.range-control {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 1px solid #3f4e49;
+  border-radius: 4px;
+  color: #89998f;
+  background: #27322f;
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.04em;
+}
+
+.frame-number-control input,
+.range-control input {
+  width: 34px;
+  height: 20px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 2px;
+  color: #e2e8df;
+  background: #34413c;
+  font-family: var(--mono);
+  font-size: 8px;
+  text-align: center;
+}
+
+.frame-number-control input:focus,
+.range-control input:focus {
+  outline: 1px solid #8da596;
+}
+
+.range-control {
+  padding-right: 4px;
+}
+
+.range-control input {
+  width: 29px;
 }
 
 .timeline-actions .action-divider {
@@ -1469,6 +1532,7 @@ input[type="range"] {
 }
 
 .ruler-cells {
+  --timeline-scale: 1;
   min-width: 0;
   flex: 1;
   display: flex;
@@ -1483,13 +1547,13 @@ input[type="range"] {
 
 .frame-cell {
   position: relative;
-  width: 92px;
+  width: calc(92px * var(--timeline-scale));
   height: 110px;
-  flex: 0 0 92px;
+  flex: 0 0 calc(92px * var(--timeline-scale));
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 9px 8px 7px;
+  padding: 9px calc(8px * var(--timeline-scale)) 7px;
   border: 0;
   border-right: 1px solid #36423e;
   color: #97a49b;
@@ -1515,7 +1579,7 @@ input[type="range"] {
 }
 
 .frame-thumbnail {
-  width: 76px;
+  width: calc(76px * var(--timeline-scale));
   height: 43px;
   display: grid;
   place-items: center;
