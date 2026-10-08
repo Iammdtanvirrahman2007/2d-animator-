@@ -63,6 +63,7 @@ button,select,input{font:inherit;color:var(--text);background:var(--btn);border:
    <div class="row">Color <input id="color" type="color" value="#111111"> Size <input id="size" type="number" value="8" min="1" max="200" style="width:65px"></div>
    <div class="row">Stabilizer <input id="stabilizer" type="number" value="3" min="0" max="20" style="width:55px"> Gap <input id="fillGap" type="number" value="8" min="0" max="30" style="width:55px"></div>
    <div class="row"><label><input id="fillShapes" type="checkbox"> Fill shapes</label><label><input id="onion" type="checkbox" checked> Onion skin</label></div>
+   <div class="row">Onion Prev <input id="onionPrev" type="number" value="2" min="0" max="8" style="width:45px"> Next <input id="onionNext" type="number" value="2" min="0" max="8" style="width:45px"></div>
    <div id="palette"></div>
   </div>
   <div class="section"><div class="title">Animation</div>
@@ -234,7 +235,7 @@ function bucket(p){
  const off=document.createElement('canvas');off.width=C.width;off.height=C.height;
  const ox=off.getContext('2d',{willReadFrequently:true});
  ox.clearRect(0,0,C.width,C.height);
- const l=cur(),d=nearestFrame(l,S.frame);
+ const l=cur(),d=Object.keys(l.frames).map(Number).filter(f=>f<=S.frame).sort((a,b)=>b-a).map(f=>l.frames[f]).find(Boolean)||[];
  if(d){for(const s of d){if(s.type==='raster'){const im=new Image();im.src=s.src;/* raster-on-raster fill is handled by cached source on future renders */}else drawStrokesToContext(ox,[s]);}}
  const img=ox.getImageData(0,0,C.width,C.height),data=img.data;
  const x=Math.max(0,Math.min(C.width-1,Math.floor(p[0]))),y=Math.max(0,Math.min(C.height-1,Math.floor(p[1]))),idx=(y*C.width+x)*4;
@@ -243,7 +244,7 @@ function bucket(p){
  if(target.every((v,i)=>v===fill[i]))return;
  const q=[[x,y]],seen=new Uint8Array(C.width*C.height),match=(i)=>Math.abs(data[i]-target[0])<8&&Math.abs(data[i+1]-target[1])<8&&Math.abs(data[i+2]-target[2])<8&&Math.abs(data[i+3]-target[3])<8;
  while(q.length){const [cx,cy]=q.pop();if(cx<0||cy<0||cx>=C.width||cy>=C.height)continue;const pi=cy*C.width+cx;if(seen[pi])continue;const di=pi*4;if(!match(di))continue;seen[pi]=1;data[di]=fill[0];data[di+1]=fill[1];data[di+2]=fill[2];data[di+3]=fill[3];q.push([cx+1,cy],[cx-1,cy],[cx,cy+1],[cx,cy-1])}
- ox.putImageData(img,0,0);cur().frames[S.frame]=[{type:'raster',src:off.toDataURL('image/png')}];
+ ox.putImageData(img,0,0);const fillItem={type:'raster',src:off.toDataURL('image/png')};const existing=cur().frames[S.frame]||[];cur().frames[S.frame]=[fillItem,...existing];
 }
 function drawStrokesToContext(target,arr){
  for(const s of arr){target.beginPath();target.lineWidth=s.size;target.lineCap='round';target.lineJoin='round';target.strokeStyle=s.color;target.fillStyle=s.color;
