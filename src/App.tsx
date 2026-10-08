@@ -156,6 +156,11 @@ function App() {
   const [opacity, setOpacity] = useState(76);
   const [stabilization, setStabilization] = useState(18);
   const [pressure, setPressure] = useState(true);
+  const [fillTolerance, setFillTolerance] = useState(32);
+  const [fillGap, setFillGap] = useState(4);
+  const [fillOpacity, setFillOpacity] = useState(100);
+  const [fillMode, setFillMode] = useState<"contiguous" | "all">("contiguous");
+  const [fillPreserveAlpha, setFillPreserveAlpha] = useState(false);
   const [presets, setPresets] = useState(initialBrushes.presets);
   const [presetName, setPresetName] = useState("");
   const [activePresetId, setActivePresetId] = useState("graphite");
@@ -494,13 +499,15 @@ function App() {
 
   const applyFillAt = useCallback((x: number, y: number) => {
     if (!currentFrame || !activeLayer || activeLayer.locked || !activeLayer.visible) return;
-    const strokes = currentFrame.cels[activeLayerId] ?? [];
-    const candidates = strokes
+    const sourceLayers = fillMode === "all" ? project.layers.filter((layer) => layer.visible) : [activeLayer];
+    const candidates = sourceLayers.flatMap((sourceLayer) => (currentFrame.cels[sourceLayer.id] ?? []).map((stroke, index) => ({ stroke, index, layerId: sourceLayer.id })) )
+      .filter(({ stroke }) => stroke.tool !== "fill" && stroke.points.length >= 3)
+      .map(({ stroke, index, layerId }) => {
       .map((stroke, index) => {
         if (stroke.tool === "fill" || stroke.points.length < 3) return null;
         const first = stroke.points[0];
         const last = stroke.points.at(-1)!;
-        if (Math.hypot(first.x - last.x, first.y - last.y) > Math.max(12, stroke.size * 2.5)) return null;
+        if (Math.hypot(first.x - last.x, first.y - last.y) > Math.max(12 + fillGap * 3, stroke.size * 2.5 + fillGap)) return null;
         let inside = false;
         for (let i = 0, j = stroke.points.length - 1; i < stroke.points.length; j = i++) {
           const a = stroke.points[i];
@@ -513,9 +520,9 @@ function App() {
         for (let i = 0, j = stroke.points.length - 1; i < stroke.points.length; j = i++) {
           area += stroke.points[j].x * stroke.points[i].y - stroke.points[i].x * stroke.points[j].y;
         }
-        return { stroke, index, area: Math.abs(area) / 2 };
+        return { stroke, index, layerId, area: Math.abs(area) / 2 };
       })
-      .filter((value): value is { stroke: Stroke; index: number; area: number } => value !== null)
+      .filter((value): value is { stroke: Stroke; index: number; layerId: string; area: number } => value !== null)
       .sort((a, b) => a.area - b.area);
     const target = candidates[0];
     if (!target) {
@@ -527,21 +534,22 @@ function App() {
       points: target.stroke.points.map((point) => ({ ...point })),
       color,
       size: 1,
-      opacity: 100,
+      opacity: fillOpacity,
       tool: "fill",
       brush: "ink",
       pressure: false,
     };
-    const nextStrokes = [...strokes];
+    const targetStrokes = currentFrame.cels[target.layerId] ?? [];
+    const nextStrokes = [...targetStrokes];
     nextStrokes.splice(target.index, 0, fillStroke);
     const frames = project.frames.map((frame) =>
       frame.id === currentFrame.id
-        ? { ...frame, cels: { ...frame.cels, [activeLayerId]: nextStrokes } }
+        ? { ...frame, cels: { ...frame.cels, [target.layerId]: nextStrokes } }
         : frame,
     );
     commitProject({ ...project, frames });
     announce("Area filled", "success");
-  }, [activeLayer, activeLayerId, color, commitProject, currentFrame, project, announce]);
+  }, [activeLayer, activeLayerId, announce, color, commitProject, currentFrame, fillGap, fillMode, fillOpacity, project]);
 
   const distanceToStroke = (x: number, y: number, stroke: Stroke) => {
     let best = Infinity;
@@ -1320,8 +1328,8 @@ function App() {
             <section className="inspector-section brush-settings">
               <div className="section-heading compact">
                 <div>
-                  <h2>Brush settings</h2>
-                  <span>{tool === "eraser" ? "Eraser uses the same size" : selectedBrush}</span>
+                  <h2>{tool === "fill" ? "Fill settings" : "Brush settings"}</h2>
+                  <span>{tool === "fill" ? "Bucket fill" : tool === "eraser" ? "Eraser uses the same size" : selectedBrush}</span>
                 </div>
               </div>
               <label className="control-label" htmlFor="brush-type">Tip</label>
@@ -1417,6 +1425,56 @@ function App() {
                 </button>
               </div>
             </section>
+
+            {tool === "fill" && (
+              <section className="inspector-section fill-settings">
+                <div className="section-heading compact">
+                  <div>
+                    <h2>Fill settings</h2>
+                    <span>Bucket & color controls</span>
+                  </div>
+                  <PaintBucket size={16} className="section-accent" />
+                </div>
+                <div className="fill-palette" aria-label="Fill color palette">
+                  {["#263b3b","#000000","#ffffff","#df7657","#e4a11b","#e05b8a","#7a5cff","#3c82f6","#35a66f","#9b6b43"].map((swatch) => (
+                    <button key={swatch} type="button" aria-label={`Fill color ${swatch}`} className={`fill-swatch ${color.toLowerCase() === swatch ? "selected" : ""}`} style={{ background: swatch }} onClick={() => setColor(swatch)} />
+                  ))}
+                </div>
+                <label className="color-control" htmlFor="fill-color">
+                  <span className="control-label">Fill color</span>
+                  <span className="color-input-wrap">
+                    <input id="fill-color" aria-label="Fill color" type="color" value={color} onChange={(event) => setColor(event.currentTarget.value)} />
+                    <input aria-label="Fill hex color" className="fill-hex-input" value={color.toUpperCase()} maxLength={7} onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      if (/^#[\da-f]{0,6}$/i.test(value)) setColor(value);
+                    }} onBlur={() => { if (!/^#[\da-f]{6}$/i.test(color)) setColor("#263b3b"); }} />
+                  </span>
+                </label>
+                <div className="slider-control">
+                  <label htmlFor="fill-opacity">Opacity <span>{fillOpacity}%</span></label>
+                  <input id="fill-opacity" type="range" min="1" max="100" value={fillOpacity} onChange={(event) => setFillOpacity(Number(event.currentTarget.value))} />
+                </div>
+                <div className="slider-control">
+                  <label htmlFor="fill-tolerance">Tolerance <span>{fillTolerance}</span></label>
+                  <input id="fill-tolerance" type="range" min="0" max="100" value={fillTolerance} onChange={(event) => setFillTolerance(Number(event.currentTarget.value))} />
+                </div>
+                <div className="slider-control">
+                  <label htmlFor="fill-gap">Close gaps <span>{fillGap}px</span></label>
+                  <input id="fill-gap" type="range" min="0" max="24" value={fillGap} onChange={(event) => setFillGap(Number(event.currentTarget.value))} />
+                </div>
+                <label className="control-label" htmlFor="fill-mode">Fill mode</label>
+                <select id="fill-mode" value={fillMode} onChange={(event) => setFillMode(event.currentTarget.value as "contiguous" | "all")}>
+                  <option value="contiguous">Current layer</option>
+                  <option value="all">All visible layers</option>
+                </select>
+                <label className="pressure-toggle">
+                  <input type="checkbox" checked={fillPreserveAlpha} onChange={(event) => setFillPreserveAlpha(event.currentTarget.checked)} />
+                  <span className="custom-check"><Check size={11} /></span>
+                  Preserve alpha
+                </label>
+                <div className="fill-hint">Click inside a closed outline. <kbd>G</kbd> activates Fill.</div>
+              </section>
+            )}
 
             <section className="inspector-section layers-section">
               <div className="section-heading layers-heading">
