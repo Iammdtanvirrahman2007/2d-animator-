@@ -189,7 +189,7 @@ function App() {
   const [selectionMode, setSelectionMode] = useState<"object" | "box" | "lasso">("object");
   const clipboardRef = useRef<Stroke[]>([]);
   const selectionDragRef = useRef<{ startX: number; startY: number; points: StrokePoint[] } | null>(null);
-  const objectDragRef = useRef<{ startX: number; startY: number } | null>(null);
+  const objectDragRef = useRef<{ startX: number; startY: number; baseProject: AnimationProject } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageViewportRef = useRef<HTMLDivElement>(null);
@@ -656,6 +656,23 @@ function App() {
     commitProject({ ...project, frames });
   }, [activeLayerId, commitProject, currentFrame, project, selectedStrokeIds]);
 
+  const moveSelected = useCallback((dx: number, dy: number) => {
+    if (!currentFrame || !selectedStrokeIds.length) return;
+    const ids = new Set(selectedStrokeIds);
+    const frames = project.frames.map((frame) => frame.id === currentFrame.id ? { ...frame, cels: { ...frame.cels, [activeLayerId]: (frame.cels[activeLayerId] ?? []).map((stroke) => ids.has(stroke.id) ? { ...stroke, points: stroke.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) } : stroke) } } : frame);
+    commitProject({ ...project, frames });
+  }, [activeLayerId, commitProject, currentFrame, project, selectedStrokeIds]);
+
+  const selectedBounds = useMemo(() => {
+    if (!currentFrame || !selectedStrokeIds.length) return null;
+    const ids = new Set(selectedStrokeIds);
+    const points = (currentFrame.cels[activeLayerId] ?? []).filter((s) => ids.has(s.id)).flatMap((s) => s.points);
+    if (!points.length) return null;
+    const minX = Math.min(...points.map((p) => p.x)), maxX = Math.max(...points.map((p) => p.x));
+    const minY = Math.min(...points.map((p) => p.y)), maxY = Math.max(...points.map((p) => p.y));
+    return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2, width: maxX - minX, height: maxY - minY };
+  }, [activeLayerId, currentFrame, selectedStrokeIds]);
+
   const rotateSelected = (degrees: number) => {
     const r = degrees * Math.PI / 180;
     transformSelected((p, cx, cy) => { const x = p.x - cx, y = p.y - cy; return { ...p, x: cx + x * Math.cos(r) - y * Math.sin(r), y: cy + x * Math.sin(r) + y * Math.cos(r) }; });
@@ -758,33 +775,36 @@ function App() {
       return;
     }
     if (objectMode && objectDragRef.current && currentFrame) {
+      const drag = objectDragRef.current;
       const rect = event.currentTarget.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * project.width;
       const y = ((event.clientY - rect.top) / rect.height) * project.height;
-      const dx = x - objectDragRef.current.startX, dy = y - objectDragRef.current.startY;
+      let dx = x - drag.startX, dy = y - drag.startY;
+      if (event.shiftKey && objectTransformMode === "move") {
+        if (Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0;
+      }
+      const baseFrame = drag.baseProject.frames.find((frame) => frame.id === currentFrame.id);
+      if (!baseFrame) return;
       const ids = new Set(selectedStrokeIds);
-      const selected = (currentFrame.cels[activeLayerId] ?? []).filter((s) => ids.has(s.id));
+      const selected = (baseFrame.cels[activeLayerId] ?? []).filter((s) => ids.has(s.id));
       const points = selected.flatMap((s) => s.points);
       if (!points.length) return;
       const cx = (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2;
       const cy = (Math.min(...points.map((p) => p.y)) + Math.max(...points.map((p) => p.y))) / 2;
       const angle = dx * Math.PI / 180;
       const scale = Math.max(0.05, 1 + dx / 200);
-      const frames = project.frames.map((f) => f.id === currentFrame.id
-        ? { ...f, cels: { ...f.cels, [activeLayerId]: (f.cels[activeLayerId] ?? []).map((s) => {
-            if (!ids.has(s.id)) return s;
-            const points = s.points.map((p) => {
-              if (objectTransformMode === "move") return { ...p, x: p.x + dx, y: p.y + dy };
-              const px = p.x - cx, py = p.y - cy;
-              if (objectTransformMode === "rotate") return { ...p, x: cx + px * Math.cos(angle) - py * Math.sin(angle), y: cy + px * Math.sin(angle) + py * Math.cos(angle) };
-              if (objectTransformMode === "scale") return { ...p, x: cx + px * scale, y: cy + py * scale };
-              return p;
-            });
-            return { ...s, points };
-          }) } }
-        : f);
-      setProject({ ...project, frames });
-      objectDragRef.current = { startX: x, startY: y };
+      const frames = drag.baseProject.frames.map((frame) => frame.id === currentFrame.id ? { ...frame, cels: { ...frame.cels, [activeLayerId]: (frame.cels[activeLayerId] ?? []).map((s) => {
+        if (!ids.has(s.id)) return s;
+        const points = s.points.map((p) => {
+          if (objectTransformMode === "move") return { ...p, x: p.x + dx, y: p.y + dy };
+          const px = p.x - cx, py = p.y - cy;
+          if (objectTransformMode === "rotate") return { ...p, x: cx + px * Math.cos(angle) - py * Math.sin(angle), y: cy + px * Math.sin(angle) + py * Math.cos(angle) };
+          if (objectTransformMode === "scale") return { ...p, x: cx + px * scale, y: cy + py * scale };
+          return p;
+        });
+        return { ...s, points };
+      }) } } : frame);
+      setProject({ ...drag.baseProject, frames });
       paintStage();
       return;
     }
@@ -1244,6 +1264,11 @@ function App() {
               {objectMode && selectedStrokeIds.length > 0 && (
                 <>
                   <span className="object-selection-label">{selectedStrokeIds.length} object{selectedStrokeIds.length > 1 ? "s" : ""}</span>
+                  {selectedBounds && <span className="transform-readout">X {Math.round(selectedBounds.centerX)} · Y {Math.round(selectedBounds.centerY)} · {Math.round(selectedBounds.width)}×{Math.round(selectedBounds.height)}</span>}
+                  <button type="button" className="small-toggle" title="Move left 10 px" onClick={() => moveSelected(-10, 0)}>X−10</button>
+                  <button type="button" className="small-toggle" title="Move right 10 px" onClick={() => moveSelected(10, 0)}>X+10</button>
+                  <button type="button" className="small-toggle" title="Move up 10 px" onClick={() => moveSelected(0, -10)}>Y−10</button>
+                  <button type="button" className="small-toggle" title="Move down 10 px" onClick={() => moveSelected(0, 10)}>Y+10</button>
                   <button type="button" className="small-toggle" title="Rotate left 15°" onClick={() => rotateSelected(-15)}>↶ 15°</button>
                   <button type="button" className="small-toggle" title="Rotate right 15°" onClick={() => rotateSelected(15)}>↷ 15°</button>
                   <button type="button" className="small-toggle" title="Scale down" onClick={() => scaleSelected(0.9)}>−10%</button>
