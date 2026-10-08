@@ -173,6 +173,9 @@ function App() {
   const [historyVersion, setHistoryVersion] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
   const [openLayerMenuId, setOpenLayerMenuId] = useState<string | null>(null);
+  const [objectMode, setObjectMode] = useState(false);
+  const [selectedStrokeIds, setSelectedStrokeIds] = useState<string[]>([]);
+  const objectDragRef = useRef<{ startX: number; startY: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageViewportRef = useRef<HTMLDivElement>(null);
@@ -240,11 +243,23 @@ function App() {
           previewStroke,
           activeLayerId,
         );
+        if (objectMode && selectedStrokeIds.length) {
+          const strokes = (currentFrame?.cels[activeLayerId] ?? []).filter((stroke) => selectedStrokeIds.includes(stroke.id));
+          const points = strokes.flatMap((stroke) => stroke.points);
+          if (points.length) {
+            const minX = Math.min(...points.map((p) => p.x)); const maxX = Math.max(...points.map((p) => p.x));
+            const minY = Math.min(...points.map((p) => p.y)); const maxY = Math.max(...points.map((p) => p.y));
+            context.save(); context.strokeStyle = "#3d6bff"; context.lineWidth = 1.5 / ratio; context.setLineDash([7 / ratio, 4 / ratio]);
+            context.strokeRect(minX, minY, maxX - minX, maxY - minY); context.setLineDash([]); context.fillStyle = "#3d6bff";
+            for (const [x, y] of [[minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]]) context.fillRect(x - 4 / ratio, y - 4 / ratio, 8 / ratio, 8 / ratio);
+            context.restore();
+          }
+        }
       } catch (error) {
         announce(`Canvas render failed: ${errorMessage(error)}`, "error");
       }
     },
-    [activeLayerId, announce, currentFrameIndex, onionSkin, project],
+    [activeLayerId, announce, currentFrame, currentFrameIndex, objectMode, onionSkin, project, selectedStrokeIds],
   );
 
   useEffect(() => {
@@ -459,8 +474,69 @@ function App() {
     [activeLayerId, announce, commitProject, project],
   );
 
+  const distanceToStroke = (x: number, y: number, stroke: Stroke) => {
+    let best = Infinity;
+    for (let i = 1; i < stroke.points.length; i += 1) {
+      const a = stroke.points[i - 1], b = stroke.points[i];
+      const dx = b.x - a.x, dy = b.y - a.y, d = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / d));
+      best = Math.min(best, Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy)));
+    }
+    const first = stroke.points[0];
+    return first ? Math.min(best, Math.hypot(x - first.x, y - first.y)) : best;
+  };
+
+  const transformSelected = useCallback((transform: (point: StrokePoint, cx: number, cy: number) => StrokePoint) => {
+    if (!currentFrame || !selectedStrokeIds.length) return;
+    const selected = (currentFrame.cels[activeLayerId] ?? []).filter((s) => selectedStrokeIds.includes(s.id));
+    const points = selected.flatMap((s) => s.points);
+    if (!points.length) return;
+    const cx = (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2;
+    const cy = (Math.min(...points.map((p) => p.y)) + Math.max(...points.map((p) => p.y))) / 2;
+    const ids = new Set(selectedStrokeIds);
+    const frames = project.frames.map((frame) => frame.id === currentFrame.id
+      ? { ...frame, cels: { ...frame.cels, [activeLayerId]: (frame.cels[activeLayerId] ?? []).map((s) => ids.has(s.id) ? { ...s, points: s.points.map((p) => transform(p, cx, cy)) } : s) } }
+      : frame);
+    commitProject({ ...project, frames });
+  }, [activeLayerId, commitProject, currentFrame, project, selectedStrokeIds]);
+
+  const rotateSelected = (degrees: number) => {
+    const r = degrees * Math.PI / 180;
+    transformSelected((p, cx, cy) => { const x = p.x - cx, y = p.y - cy; return { ...p, x: cx + x * Math.cos(r) - y * Math.sin(r), y: cy + x * Math.sin(r) + y * Math.cos(r) }; });
+  };
+
+  const scaleSelected = (factor: number) => {
+    transformSelected((p, cx, cy) => ({ ...p, x: cx + (p.x - cx) * factor, y: cy + (p.y - cy) * factor }));
+  };
+
+  const duplicateSelected = useCallback(() => {
+    if (!currentFrame || !selectedStrokeIds.length) return;
+    const selected = (currentFrame.cels[activeLayerId] ?? []).filter((s) => selectedStrokeIds.includes(s.id));
+    const copies = selected.map((s) => ({ ...s, id: createId(), points: s.points.map((p) => ({ ...p, x: p.x + 12, y: p.y + 12 })) }));
+    const frames = project.frames.map((f) => f.id === currentFrame.id ? { ...f, cels: { ...f.cels, [activeLayerId]: [...(f.cels[activeLayerId] ?? []), ...copies] } } : f);
+    commitProject({ ...project, frames }); setSelectedStrokeIds(copies.map((s) => s.id)); announce("Objects duplicated", "success");
+  }, [activeLayerId, announce, commitProject, currentFrame, project, selectedStrokeIds]);
+
+  const deleteSelected = useCallback(() => {
+    if (!currentFrame || !selectedStrokeIds.length) return;
+    const ids = new Set(selectedStrokeIds);
+    const frames = project.frames.map((f) => f.id === currentFrame.id ? { ...f, cels: { ...f.cels, [activeLayerId]: (f.cels[activeLayerId] ?? []).filter((s) => !ids.has(s.id)) } } : f);
+    commitProject({ ...project, frames }); setSelectedStrokeIds([]); announce("Selected objects deleted", "success");
+  }, [activeLayerId, announce, commitProject, currentFrame, project, selectedStrokeIds]);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return;
+    if (objectMode) {
+      if (!activeLayer || activeLayer.locked || !activeLayer.visible || !currentFrame) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * project.width;
+      const y = ((event.clientY - rect.top) / rect.height) * project.height;
+      const strokes = currentFrame.cels[activeLayerId] ?? [];
+      const hit = [...strokes].reverse().find((s) => distanceToStroke(x, y, s) <= Math.max(10, s.size * 2));
+      if (!hit) { if (!event.shiftKey) setSelectedStrokeIds([]); return; }
+      const ids = event.shiftKey ? (selectedStrokeIds.includes(hit.id) ? selectedStrokeIds : [...selectedStrokeIds, hit.id]) : [hit.id];
+      setSelectedStrokeIds(ids); objectDragRef.current = { startX: x, startY: y }; event.currentTarget.setPointerCapture(event.pointerId); return;
+    }
     if (!activeLayer || activeLayer.locked || !activeLayer.visible) {
       announce("Select a visible, unlocked layer before drawing.", "error");
       return;
@@ -488,6 +564,15 @@ function App() {
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (objectMode && objectDragRef.current && currentFrame) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * project.width;
+      const y = ((event.clientY - rect.top) / rect.height) * project.height;
+      const dx = x - objectDragRef.current.startX, dy = y - objectDragRef.current.startY;
+      const ids = new Set(selectedStrokeIds);
+      const frames = project.frames.map((f) => f.id === currentFrame.id ? { ...f, cels: { ...f.cels, [activeLayerId]: (f.cels[activeLayerId] ?? []).map((s) => ids.has(s.id) ? { ...s, points: s.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) } : s) } } : f);
+      setProject({ ...project, frames }); objectDragRef.current = { startX: x, startY: y }; paintStage(); return;
+    }
     const stroke = previewStrokeRef.current;
     if (!stroke) return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -510,6 +595,10 @@ function App() {
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (objectMode && objectDragRef.current) {
+      objectDragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId);
+      historyRef.current = historyRef.current.slice(0, historyCursorRef.current + 1); historyRef.current.push(project); historyCursorRef.current = historyRef.current.length - 1; setHistoryVersion((v) => v + 1); return;
+    }
     const stroke = previewStrokeRef.current;
     if (!stroke || !currentFrame) return;
     previewStrokeRef.current = null;
