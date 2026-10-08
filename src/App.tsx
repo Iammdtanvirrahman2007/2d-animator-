@@ -727,7 +727,7 @@ function App() {
       if (!hit) { if (!event.shiftKey) setSelectedStrokeIds([]); return; }
       const ids = event.shiftKey ? (selectedStrokeIds.includes(hit.id) ? selectedStrokeIds.filter((id) => id !== hit.id) : [...selectedStrokeIds, hit.id]) : [hit.id];
       setSelectedStrokeIds(ids);
-      objectDragRef.current = { startX: x, startY: y };
+      objectDragRef.current = { startX: x, startY: y, baseProject: project };
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
