@@ -36,6 +36,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -1297,6 +1298,8 @@ function App() {
               <ShortcutRow label="Eraser tool" keys={["E"]} />
               <ShortcutRow label="Play / pause" keys={["Space"]} />
               <ShortcutRow label="Previous / next frame" keys={["[", "]"]} />
+              <ShortcutRow label="First / last frame" keys={["Home", "End"]} />
+              <ShortcutRow label="Playback range" keys={["Shift", "← / →"]} />
               <ShortcutRow label="Add blank frame" keys={["F"]} />
               <ShortcutRow label="Duplicate frame" keys={["Shift", "D"]} />
               <ShortcutRow label="Undo / redo" keys={["Ctrl", "Z"]} />
