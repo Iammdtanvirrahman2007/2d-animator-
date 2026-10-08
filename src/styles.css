@@ -1301,7 +1301,7 @@ input[type="range"] {
 }
 
 .timeline-topline {
-  height: calc(43px * var(--timeline-scale));
+  height: 43px;
   flex: 0 0 43px;
   display: flex;
   align-items: center;
@@ -1580,7 +1580,7 @@ input[type="range"] {
 
 .frame-thumbnail {
   width: calc(76px * var(--timeline-scale));
-  height: 43px;
+  height: calc(43px * var(--timeline-scale));
   display: grid;
   place-items: center;
   overflow: hidden;
