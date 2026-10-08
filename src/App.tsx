@@ -184,6 +184,7 @@ function App() {
   const [openLayerMenuId, setOpenLayerMenuId] = useState<string | null>(null);
   const [objectMode, setObjectMode] = useState(false);
   const [selectedStrokeIds, setSelectedStrokeIds] = useState<string[]>([]);
+  const [objectTransformMode, setObjectTransformMode] = useState<"select" | "move" | "rotate" | "scale">("select");
   const objectDragRef = useRef<{ startX: number; startY: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -653,8 +654,30 @@ function App() {
       const y = ((event.clientY - rect.top) / rect.height) * project.height;
       const dx = x - objectDragRef.current.startX, dy = y - objectDragRef.current.startY;
       const ids = new Set(selectedStrokeIds);
-      const frames = project.frames.map((f) => f.id === currentFrame.id ? { ...f, cels: { ...f.cels, [activeLayerId]: (f.cels[activeLayerId] ?? []).map((s) => ids.has(s.id) ? { ...s, points: s.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) } : s) } } : f);
-      setProject({ ...project, frames }); objectDragRef.current = { startX: x, startY: y }; paintStage(); return;
+      const selected = (currentFrame.cels[activeLayerId] ?? []).filter((s) => ids.has(s.id));
+      const points = selected.flatMap((s) => s.points);
+      if (!points.length) return;
+      const cx = (Math.min(...points.map((p) => p.x)) + Math.max(...points.map((p) => p.x))) / 2;
+      const cy = (Math.min(...points.map((p) => p.y)) + Math.max(...points.map((p) => p.y))) / 2;
+      const angle = dx * Math.PI / 180;
+      const scale = Math.max(0.05, 1 + dx / 200);
+      const frames = project.frames.map((f) => f.id === currentFrame.id
+        ? { ...f, cels: { ...f.cels, [activeLayerId]: (f.cels[activeLayerId] ?? []).map((s) => {
+            if (!ids.has(s.id)) return s;
+            const points = s.points.map((p) => {
+              if (objectTransformMode === "move") return { ...p, x: p.x + dx, y: p.y + dy };
+              const px = p.x - cx, py = p.y - cy;
+              if (objectTransformMode === "rotate") return { ...p, x: cx + px * Math.cos(angle) - py * Math.sin(angle), y: cy + px * Math.sin(angle) + py * Math.cos(angle) };
+              if (objectTransformMode === "scale") return { ...p, x: cx + px * scale, y: cy + py * scale };
+              return p;
+            });
+            return { ...s, points };
+          }) } }
+        : f);
+      setProject({ ...project, frames });
+      objectDragRef.current = { startX: x, startY: y };
+      paintStage();
+      return;
     }
     const stroke = previewStrokeRef.current;
     if (!stroke) return;
@@ -845,6 +868,7 @@ function App() {
         setSelectedStrokeIds([]);
       } else if (event.key.toLowerCase() === "w") {
         setObjectMode((value) => !value);
+        setObjectTransformMode("select");
         setSelectedStrokeIds([]);
       } else if (event.key.toLowerCase() === "e") {
         setTool((value) => (value === "eraser" ? "brush" : "eraser"));
