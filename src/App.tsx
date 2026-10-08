@@ -17,6 +17,7 @@ import {
   PaintBucket,
   MoveDown,
   MoveUp,
+  MousePointer2,
   Pause,
   Play,
   Plus,
@@ -256,6 +257,28 @@ function App() {
           previewStroke,
           activeLayerId,
         );
+        if (objectMode && selectionDragRef.current) {
+          const drag = selectionDragRef.current;
+          context.save();
+          context.strokeStyle = "#3d6bff";
+          context.fillStyle = "rgba(61,107,255,0.08)";
+          context.lineWidth = 1.25 / ratio;
+          context.setLineDash([6 / ratio, 4 / ratio]);
+          if (selectionMode === "box") {
+            const x = Math.min(drag.startX, drag.points[drag.points.length - 1]?.x ?? drag.startX);
+            const y = Math.min(drag.startY, drag.points[drag.points.length - 1]?.y ?? drag.startY);
+            const w = Math.abs((drag.points[drag.points.length - 1]?.x ?? drag.startX) - drag.startX);
+            const h = Math.abs((drag.points[drag.points.length - 1]?.y ?? drag.startY) - drag.startY);
+            context.fillRect(x, y, w, h);
+            context.strokeRect(x, y, w, h);
+          } else if (selectionMode === "lasso" && drag.points.length > 1) {
+            context.beginPath();
+            context.moveTo(drag.points[0].x, drag.points[0].y);
+            for (const point of drag.points.slice(1)) context.lineTo(point.x, point.y);
+            context.stroke();
+          }
+          context.restore();
+        }
         if (objectMode && selectedStrokeIds.length) {
           const strokes = (currentFrame?.cels[activeLayerId] ?? []).filter((stroke) => selectedStrokeIds.includes(stroke.id));
           const points = strokes.flatMap((stroke) => stroke.points);
@@ -531,25 +554,29 @@ function App() {
     announce("Selection deleted", "success");
   }, [activeLayer, activeLayerId, announce, commitProject, currentFrame, project, selectedStrokeIds]);
 
-  const selectByBox = useCallback((x1: number, y1: number, x2: number, y2: number, lasso?: StrokePoint[]) => {
+  const selectByBox = useCallback((x1: number, y1: number, x2: number, y2: number, lasso?: StrokePoint[], additive = false, subtractive = false) => {
     const strokes = currentFrame?.cels[activeLayerId] ?? [];
     const minX = Math.min(x1, x2), maxX = Math.max(x1, x2), minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-    const inside = (stroke: Stroke) => {
-      if (lasso?.length && lasso.length > 2) {
-        const pointIn = (x: number, y: number) => {
-          let hit = false;
-          for (let i = 0, j = lasso.length - 1; i < lasso.length; j = i++) {
-            const a = lasso[i], b = lasso[j];
-            if ((a.y > y) !== (b.y > y) && x < ((b.x-a.x)*(y-a.y))/((b.y-a.y)||Number.EPSILON)+a.x) hit = !hit;
-          }
-          return hit;
-        };
-        return stroke.points.some((p) => pointIn(p.x, p.y));
+    const pointInPolygon = (x: number, y: number, polygon: StrokePoint[]) => {
+      let hit = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const a = polygon[i], b = polygon[j];
+        if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / ((b.y - a.y) || Number.EPSILON) + a.x) hit = !hit;
+      }
+      return hit;
+    };
+    const selected = strokes.filter((stroke) => {
+      if (stroke.tool === "fill") return false;
+      if (lasso && lasso.length > 2) {
+        return stroke.points.some((p) => pointInPolygon(p.x, p.y, lasso));
       }
       return stroke.points.some((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
-    };
-    const ids = strokes.filter(inside).map((stroke) => stroke.id);
-    setSelectedStrokeIds((current) => selectionDragRef.current && false ? current : ids);
+    }).map((stroke) => stroke.id);
+    setSelectedStrokeIds((current) => {
+      if (subtractive) return current.filter((id) => !selected.includes(id));
+      if (additive) return Array.from(new Set([...current, ...selected]));
+      return selected;
+    });
   }, [activeLayerId, currentFrame]);
   const applyFillAt = useCallback((x: number, y: number) => {
     if (!currentFrame || !activeLayer || activeLayer.locked || !activeLayer.visible) return;
@@ -668,11 +695,24 @@ function App() {
       const rect = event.currentTarget.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * project.width;
       const y = ((event.clientY - rect.top) / rect.height) * project.height;
+      if (selectionMode === "box" || selectionMode === "lasso") {
+        selectionDragRef.current = {
+          startX: x,
+          startY: y,
+          points: [{ x, y, pressure: 1 }],
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        paintStage();
+        return;
+      }
       const strokes = currentFrame.cels[activeLayerId] ?? [];
       const hit = [...strokes].reverse().find((s) => distanceToStroke(x, y, s) <= Math.max(10, s.size * 2));
       if (!hit) { if (!event.shiftKey) setSelectedStrokeIds([]); return; }
-      const ids = event.shiftKey ? (selectedStrokeIds.includes(hit.id) ? selectedStrokeIds : [...selectedStrokeIds, hit.id]) : [hit.id];
-      setSelectedStrokeIds(ids); objectDragRef.current = { startX: x, startY: y }; event.currentTarget.setPointerCapture(event.pointerId); return;
+      const ids = event.shiftKey ? (selectedStrokeIds.includes(hit.id) ? selectedStrokeIds.filter((id) => id !== hit.id) : [...selectedStrokeIds, hit.id]) : [hit.id];
+      setSelectedStrokeIds(ids);
+      objectDragRef.current = { startX: x, startY: y };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
     }
     if (!activeLayer || activeLayer.locked || !activeLayer.visible) {
       announce("Select a visible, unlocked layer before drawing.", "error");
@@ -701,6 +741,22 @@ function App() {
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (objectMode && selectionDragRef.current && currentFrame) {
+      const drag = selectionDragRef.current;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * project.width;
+      const y = ((event.clientY - rect.top) / rect.height) * project.height;
+      if (selectionMode === "box") {
+        drag.points = [{ x, y, pressure: 1 }];
+      } else {
+        const last = drag.points.at(-1);
+        if (!last || Math.hypot(x - last.x, y - last.y) >= 2) {
+          drag.points.push({ x, y, pressure: 1 });
+        }
+      }
+      paintStage();
+      return;
+    }
     if (objectMode && objectDragRef.current && currentFrame) {
       const rect = event.currentTarget.getBoundingClientRect();
       const x = ((event.clientX - rect.left) / rect.width) * project.width;
@@ -754,6 +810,22 @@ function App() {
   };
 
   const onPointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (objectMode && selectionDragRef.current) {
+      const drag = selectionDragRef.current;
+      const end = drag.points.at(-1) ?? { x: drag.startX, y: drag.startY, pressure: 1 };
+      const distance = Math.hypot(end.x - drag.startX, end.y - drag.startY);
+      if (selectionMode === "lasso") {
+        selectByBox(drag.startX, drag.startY, end.x, end.y, drag.points, event.shiftKey, event.altKey);
+      } else if (distance >= 3) {
+        selectByBox(drag.startX, drag.startY, end.x, end.y, undefined, event.shiftKey, event.altKey);
+      } else if (!event.shiftKey && !event.altKey) {
+        setSelectedStrokeIds([]);
+      }
+      selectionDragRef.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      paintStage();
+      return;
+    }
     if (objectMode && objectDragRef.current) {
       objectDragRef.current = null; event.currentTarget.releasePointerCapture(event.pointerId);
       historyRef.current = historyRef.current.slice(0, historyCursorRef.current + 1); historyRef.current.push(project); historyCursorRef.current = historyRef.current.length - 1; setHistoryVersion((v) => v + 1); return;
@@ -1143,6 +1215,32 @@ function App() {
               </div>
             </div>
             <div className="stage-controls">
+              {objectMode && (
+                <div className="selection-mode-group" role="group" aria-label="Selection mode">
+                  {([
+                    ["object", "Object"],
+                    ["box", "Box"],
+                    ["lasso", "Lasso"],
+                  ] as const).map(([mode, label]) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`small-toggle ${selectionMode === mode ? "active" : ""}`}
+                      aria-pressed={selectionMode === mode}
+                      title={mode === "object" ? "Click objects to select" : mode === "box" ? "Drag a rectangle to select" : "Draw a freehand lasso to select"}
+                      onClick={() => {
+                        setSelectionMode(mode);
+                        setObjectTransformMode(mode === "object" ? objectTransformMode : "select");
+                        selectionDragRef.current = null;
+                      }}
+                    >
+                      {mode === "object" ? <MousePointer2 size={13} /> : null}
+                      {label}
+                    </button>
+                  ))}
+                  <span className="toolbar-divider" />
+                </div>
+              )}
               {objectMode && selectedStrokeIds.length > 0 && (
                 <>
                   <span className="object-selection-label">{selectedStrokeIds.length} object{selectedStrokeIds.length > 1 ? "s" : ""}</span>
@@ -1688,6 +1786,9 @@ function App() {
               <ShortcutRow label="Add blank frame" keys={["F"]} />
               <ShortcutRow label="Duplicate frame" keys={["Shift", "D"]} />
               <ShortcutRow label="Undo / redo" keys={["Ctrl", "Z"]} />
+              <ShortcutRow label="Object mode" keys={["W"]} />
+              <ShortcutRow label="Move / rotate / scale" keys={["G", "R", "S"]} />
+              <ShortcutRow label="Box / lasso selection" keys={["Shift", "drag"]} />
               <ShortcutRow label="Zoom" keys={["+", "−"]} />
             </div>
           </section>
