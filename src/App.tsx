@@ -185,6 +185,9 @@ function App() {
   const [objectMode, setObjectMode] = useState(false);
   const [selectedStrokeIds, setSelectedStrokeIds] = useState<string[]>([]);
   const [objectTransformMode, setObjectTransformMode] = useState<"select" | "move" | "rotate" | "scale">("select");
+  const [selectionMode, setSelectionMode] = useState<"object" | "box" | "lasso">("object");
+  const clipboardRef = useRef<Stroke[]>([]);
+  const selectionDragRef = useRef<{ startX: number; startY: number; points: StrokePoint[] } | null>(null);
   const objectDragRef = useRef<{ startX: number; startY: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -498,6 +501,56 @@ function App() {
     [activeLayerId, announce, commitProject, project],
   );
 
+  const copySelectedStrokes = useCallback(() => {
+    const strokes = currentFrame?.cels[activeLayerId] ?? [];
+    clipboardRef.current = strokes.filter((stroke) => selectedStrokeIds.includes(stroke.id)).map((stroke) => ({
+      ...stroke, id: createId(), points: stroke.points.map((point) => ({ ...point })),
+    }));
+    if (clipboardRef.current.length) announce(`Copied ${clipboardRef.current.length} object(s)`, "success");
+  }, [activeLayerId, announce, currentFrame, selectedStrokeIds]);
+
+  const pasteSelectedStrokes = useCallback(() => {
+    if (!currentFrame || !activeLayer || activeLayer.locked || !clipboardRef.current.length) return;
+    const pasted = clipboardRef.current.map((stroke) => ({
+      ...stroke, id: createId(), points: stroke.points.map((point) => ({ ...point, x: point.x + 16, y: point.y + 16 })),
+    }));
+    const frames = project.frames.map((frame) => frame.id === currentFrame.id
+      ? { ...frame, cels: { ...frame.cels, [activeLayerId]: [...(frame.cels[activeLayerId] ?? []), ...pasted] } } : frame);
+    commitProject({ ...project, frames });
+    setSelectedStrokeIds(pasted.map((stroke) => stroke.id));
+    announce(`Pasted ${pasted.length} object(s)`, "success");
+  }, [activeLayer, activeLayerId, announce, commitProject, currentFrame, project]);
+
+  const deleteSelectedStrokes = useCallback(() => {
+    if (!currentFrame || !selectedStrokeIds.length || activeLayer?.locked) return;
+    const ids = new Set(selectedStrokeIds);
+    const frames = project.frames.map((frame) => frame.id === currentFrame.id
+      ? { ...frame, cels: { ...frame.cels, [activeLayerId]: (frame.cels[activeLayerId] ?? []).filter((stroke) => !ids.has(stroke.id)) } } : frame);
+    commitProject({ ...project, frames });
+    setSelectedStrokeIds([]);
+    announce("Selection deleted", "success");
+  }, [activeLayer, activeLayerId, announce, commitProject, currentFrame, project, selectedStrokeIds]);
+
+  const selectByBox = useCallback((x1: number, y1: number, x2: number, y2: number, lasso?: StrokePoint[]) => {
+    const strokes = currentFrame?.cels[activeLayerId] ?? [];
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2), minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+    const inside = (stroke: Stroke) => {
+      if (lasso?.length && lasso.length > 2) {
+        const pointIn = (x: number, y: number) => {
+          let hit = false;
+          for (let i = 0, j = lasso.length - 1; i < lasso.length; j = i++) {
+            const a = lasso[i], b = lasso[j];
+            if ((a.y > y) !== (b.y > y) && x < ((b.x-a.x)*(y-a.y))/((b.y-a.y)||Number.EPSILON)+a.x) hit = !hit;
+          }
+          return hit;
+        };
+        return stroke.points.some((p) => pointIn(p.x, p.y));
+      }
+      return stroke.points.some((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY);
+    };
+    const ids = strokes.filter(inside).map((stroke) => stroke.id);
+    setSelectedStrokeIds((current) => selectionDragRef.current && false ? current : ids);
+  }, [activeLayerId, currentFrame]);
   const applyFillAt = useCallback((x: number, y: number) => {
     if (!currentFrame || !activeLayer || activeLayer.locked || !activeLayer.visible) return;
     const sourceLayers = fillMode === "all" ? project.layers.filter((layer) => layer.visible) : [activeLayer];
@@ -844,6 +897,15 @@ function App() {
       if (editing) return;
 
       const modifier = event.metaKey || event.ctrlKey;
+      if (modifier && event.key.toLowerCase() === "c" && objectMode && selectedStrokeIds.length) {
+        event.preventDefault(); copySelectedStrokes(); return;
+      }
+      if (modifier && event.key.toLowerCase() === "v" && objectMode) {
+        event.preventDefault(); pasteSelectedStrokes(); return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && objectMode && selectedStrokeIds.length) {
+        event.preventDefault(); deleteSelectedStrokes(); return;
+      }
       if (modifier && event.key.toLowerCase() === "z") {
         event.preventDefault();
         if (event.shiftKey) redo();
