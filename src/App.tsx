@@ -14,6 +14,7 @@ import {
   Film,
   Layers,
   Lock,
+  PaintBucket,
   MoveDown,
   MoveUp,
   Pause,
@@ -491,6 +492,57 @@ function App() {
     [activeLayerId, announce, commitProject, project],
   );
 
+  const applyFillAt = useCallback((x: number, y: number) => {
+    if (!currentFrame || !activeLayer || activeLayer.locked || !activeLayer.visible) return;
+    const strokes = currentFrame.cels[activeLayerId] ?? [];
+    const candidates = strokes
+      .map((stroke, index) => {
+        if (stroke.tool === "fill" || stroke.points.length < 3) return null;
+        const first = stroke.points[0];
+        const last = stroke.points.at(-1)!;
+        if (Math.hypot(first.x - last.x, first.y - last.y) > Math.max(12, stroke.size * 2.5)) return null;
+        let inside = false;
+        for (let i = 0, j = stroke.points.length - 1; i < stroke.points.length; j = i++) {
+          const a = stroke.points[i];
+          const b = stroke.points[j];
+          const crosses = (a.y > y) !== (b.y > y);
+          if (crosses && x < ((b.x - a.x) * (y - a.y)) / ((b.y - a.y) || Number.EPSILON) + a.x) inside = !inside;
+        }
+        if (!inside) return null;
+        let area = 0;
+        for (let i = 0, j = stroke.points.length - 1; i < stroke.points.length; j = i++) {
+          area += stroke.points[j].x * stroke.points[i].y - stroke.points[i].x * stroke.points[j].y;
+        }
+        return { stroke, index, area: Math.abs(area) / 2 };
+      })
+      .filter((value): value is { stroke: Stroke; index: number; area: number } => value !== null)
+      .sort((a, b) => a.area - b.area);
+    const target = candidates[0];
+    if (!target) {
+      announce("Fill needs a closed outline on the current layer.", "error");
+      return;
+    }
+    const fillStroke: Stroke = {
+      id: createId(),
+      points: target.stroke.points.map((point) => ({ ...point })),
+      color,
+      size: 1,
+      opacity: 100,
+      tool: "fill",
+      brush: "ink",
+      pressure: false,
+    };
+    const nextStrokes = [...strokes];
+    nextStrokes.splice(target.index, 0, fillStroke);
+    const frames = project.frames.map((frame) =>
+      frame.id === currentFrame.id
+        ? { ...frame, cels: { ...frame.cels, [activeLayerId]: nextStrokes } }
+        : frame,
+    );
+    commitProject({ ...project, frames });
+    announce("Area filled", "success");
+  }, [activeLayer, activeLayerId, color, commitProject, currentFrame, project, announce]);
+
   const distanceToStroke = (x: number, y: number, stroke: Stroke) => {
     let best = Infinity;
     for (let i = 1; i < stroke.points.length; i += 1) {
@@ -543,6 +595,14 @@ function App() {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return;
+    if (tool === "fill") {
+      if (!activeLayer || activeLayer.locked || !activeLayer.visible || !currentFrame) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * project.width;
+      const y = ((event.clientY - rect.top) / rect.height) * project.height;
+      applyFillAt(x, y);
+      return;
+    }
     if (objectMode) {
       if (!activeLayer || activeLayer.locked || !activeLayer.visible || !currentFrame) return;
       const rect = event.currentTarget.getBoundingClientRect();
@@ -653,6 +713,7 @@ function App() {
     setPressure(preset.pressure);
     setStabilization(preset.stabilization);
     setTool("brush");
+    setObjectMode(false);
     setActivePresetId(preset.id);
   };
 
@@ -770,6 +831,10 @@ function App() {
         setPlaying((value) => !value);
       } else if (event.key.toLowerCase() === "b") {
         setTool("brush");
+        setObjectMode(false);
+        setSelectedStrokeIds([]);
+      } else if (event.key.toLowerCase() === "g") {
+        setTool("fill");
         setObjectMode(false);
         setSelectedStrokeIds([]);
       } else if (event.key.toLowerCase() === "w") {
@@ -898,6 +963,18 @@ function App() {
       <section className="editor-workspace" aria-label="Animation editor">
         <nav className="tool-rail" aria-label="Drawing tools">
           <div className="tool-rail-heading">TOOLS</div>
+          <button
+            className={`tool-button ${tool === "fill" ? "selected" : ""}`}
+            type="button"
+            aria-label="Fill tool"
+            aria-pressed={tool === "fill"}
+            title="Fill closed area (G)"
+            onClick={() => { setTool("fill"); setObjectMode(false); setSelectedStrokeIds([]); }}
+          >
+            <PaintBucket size={19} />
+            <span>Fill</span>
+            <kbd>G</kbd>
+          </button>
           <button
             className={`tool-button ${objectMode ? "selected" : ""}`}
             type="button"
