@@ -147,7 +147,7 @@ function renderTimeline(){
  const ph=document.createElement('div');ph.className='playhead';ph.style.left=(S.frame-S.start)*24+110+'px';t.appendChild(ph);
 }
 function syncUI(){
- const l=cur();if(!l)return;$('lname').value=l.name;$('px').value=l.x;$('py').value=l.y;$('rot').value=l.rotation;$('scale').value=l.scale;$('opacity').value=l.opacity;$('blend').value=l.blend;$('frame').value=S.frame;$('fps').value=S.fps;$('start').value=S.start;$('end').value=S.end;$('color').value=S.color;$('size').value=S.size;$('onion').checked=S.onion;
+ const l=cur();if(!l)return;$('lname').value=l.name;$('px').value=l.x;$('py').value=l.y;$('rot').value=l.rotation;$('scale').value=l.scale;$('opacity').value=l.opacity;$('blend').value=l.blend;$('frame').value=S.frame;$('fps').value=S.fps;$('end').value=S.end;$('color').value=S.color;$('size').value=S.size;$('onion').checked=S.onion;
 }
 function go(f){S.frame=Math.max(S.start,Math.min(S.end,Math.round(f)));render()}
 function step(n){go(S.frame+n)}
@@ -184,7 +184,7 @@ function pointerUp(e){
  if(!drawing)return;drawing=false;const p=pointerPos(e);
  if(['line','rect','ellipse'].includes(S.tool)){const d=cur().frames[S.frame];if(S.tool==='line')d.push({type:'line',x1:start[0],y1:start[1],x2:p[0],y2:p[1],color:S.color,size:S.size});if(S.tool==='rect')d.push({type:'rect',x:Math.min(start[0],p[0]),y:Math.min(start[1],p[1]),w:Math.abs(p[0]-start[0]),h:Math.abs(p[1]-start[1]),color:S.color,size:S.size,fill:$('fillShapes').checked});if(S.tool==='ellipse')d.push({type:'ellipse',x:(start[0]+p[0])/2,y:(start[1]+p[1])/2,rx:Math.abs(p[0]-start[0])/2,ry:Math.abs(p[1]-start[1])/2,color:S.color,size:S.size,fill:$('fillShapes').checked})}
  else if(S.tool==='fill')bucket(p);
- if(['move','rotate','scale'].includes(S.tool)&&$('autoKey').checked)cur().keys[S.frame]={x:cur().x,y:cur().y,rotation:cur().rotation,scale:cur().scale,opacity:cur().opacity};
+ if(['move','rotate','scale'].includes(S.tool))cur().keys[S.frame]={x:cur().x,y:cur().y,rotation:cur().rotation,scale:cur().scale,opacity:cur().opacity};
  pushHistory();render();
 }
 function drawPreview(a,b){ctx.save();ctx.globalAlpha=.6;ctx.strokeStyle=S.color;ctx.lineWidth=S.size;ctx.setLineDash([6,4]);ctx.beginPath();if(S.tool==='line'){ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1])}if(S.tool==='rect')ctx.rect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));if(S.tool==='ellipse')ctx.ellipse((a[0]+b[0])/2,(a[1]+b[1])/2,Math.abs(b[0]-a[0])/2,Math.abs(b[1]-a[1])/2,0,0,Math.PI*2);ctx.stroke();ctx.restore()}
