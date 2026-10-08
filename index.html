@@ -1,18 +1,154 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#202a2b" />
-    <meta
-      name="description"
-      content="A focused frame-by-frame animation workspace for independent artists."
-    />
-    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>CelFrame Studio — 2D Animation</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Keyframe 2D Animation Studio</title>
+<style>
+:root{--bg:#191919;--panel:#282828;--panel2:#303030;--btn:#444;--hover:#555;--text:#ddd;--muted:#999;--accent:#e87d0d;--blue:#4772b3}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{background:var(--bg);color:var(--text);font:12px/1.35 system-ui,sans-serif;overflow:hidden}
+#app{height:100%;display:grid;grid-template-rows:34px 1fr 190px}
+header{display:flex;align-items:center;gap:5px;padding:4px 7px;background:var(--panel2);overflow:auto;white-space:nowrap}
+button,select,input[type=text],input[type=number]{background:var(--btn);color:var(--text);border:1px solid #555;border-radius:4px;padding:4px 7px;font:inherit}button{cursor:pointer}button:hover{background:var(--hover)}button.active{background:var(--accent);color:#111}input[type=color]{width:30px;height:25px;padding:1px;background:var(--btn);border:1px solid #555;border-radius:4px}
+.brand{font-weight:700;color:var(--accent);margin-right:6px}.sep{width:1px;height:18px;background:#555;margin:0 3px}
+#middle{display:grid;grid-template-columns:48px minmax(0,1fr) 250px;min-height:0}
+#tools{background:var(--panel);padding:6px 4px;display:flex;flex-direction:column;gap:4px}#tools button{height:34px;font-size:15px;padding:0}
+#viewport{position:relative;overflow:hidden;background:#111;display:flex;align-items:center;justify-content:center;touch-action:none}
+#canvas{width:960px;height:540px;background:#fff;box-shadow:0 5px 30px #000;image-rendering:auto;cursor:crosshair}
+#status{position:absolute;left:10px;bottom:10px;background:#000c;padding:8px 10px;border-radius:5px;font-family:monospace;pointer-events:none}
+#side{background:var(--panel);padding:7px;overflow:auto}.section{margin-bottom:12px}.title{color:var(--muted);font-weight:700;margin:5px 0}.row{display:flex;gap:5px;align-items:center;margin:4px 0}.row>*{min-width:0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}.grid label{display:flex;flex-direction:column;gap:2px;color:var(--muted)}
+#layers{background:#1d1d1d;border-radius:4px;padding:3px;max-height:155px;overflow:auto}.layer{display:flex;align-items:center;gap:5px;padding:5px;border-radius:3px;cursor:pointer}.layer.sel{background:#3b4f6b}.layer span.name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#timeline{background:var(--panel);border-top:1px solid #111;display:grid;grid-template-rows:42px 1fr;min-height:0}
+#controls{display:flex;align-items:center;gap:6px;padding:5px 8px;flex-wrap:wrap}.tiny{width:55px}#frames{position:relative;overflow:auto;border-top:1px solid #111}
+#track{position:relative;min-width:900px;height:100%}.ruler{height:28px;background:#222;position:sticky;top:0;z-index:2}.tick{position:absolute;top:0;height:28px;border-left:1px solid #555;color:#999;padding-left:3px;font-size:10px}.layerrow{height:38px;border-top:1px solid #333;position:relative}.cell{position:absolute;top:5px;height:28px;width:24px;border:1px solid #444;background:#242424;cursor:pointer}.cell.key{background:var(--accent);border-color:#ffb45e}.cell.exposure{background:#536b86}.playhead{position:absolute;top:0;bottom:0;width:2px;background:#f33;z-index:3;pointer-events:none}
+#palette{display:flex;gap:3px;flex-wrap:wrap}.sw{width:22px;height:22px;border:1px solid #777;border-radius:3px;cursor:pointer}
+@media(max-width:800px){#middle{grid-template-columns:42px minmax(0,1fr) 190px}#side{font-size:11px}}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+ <span class="brand">Keyframe</span><span>2D Animation Studio</span><span class="sep"></span>
+ <button onclick="newProject()">New</button><button onclick="saveProject()">Save</button><button onclick="openProject()">Open</button>
+ <button onclick="undo()">Undo</button><button onclick="redo()">Redo</button><span class="sep"></span>
+ <button onclick="exportPNG()">PNG</button><button onclick="exportWebM()">WebM</button>
+ <span id="info">Frame 1</span>
+</header>
+<div id="middle">
+ <aside id="tools">
+  <button data-tool="brush" class="active" title="Brush B">✎</button>
+  <button data-tool="eraser" title="Eraser E">⌫</button>
+  <button data-tool="line" title="Line">╱</button>
+  <button data-tool="rect" title="Rectangle">□</button>
+  <button data-tool="ellipse" title="Ellipse">○</button>
+  <button data-tool="fill" title="Fill">▧</button>
+  <button data-tool="move" title="Move G">✥</button>
+  <button data-tool="rotate" title="Rotate R">⟳</button>
+  <button data-tool="scale" title="Scale S">⤢</button>
+ </aside>
+ <main id="viewport"><canvas id="canvas" width="960" height="540"></canvas><div id="status"></div></main>
+ <aside id="side">
+  <div class="section"><div class="title">Layers</div><div id="layers"></div>
+   <div class="row"><button onclick="addLayer()">＋</button><button onclick="duplicateLayer()">Duplicate</button><button onclick="deleteLayer()">−</button></div>
+  </div>
+  <div class="section"><div class="title">Transform</div>
+   <div class="grid">
+    <label>X<input id="px" type="number" value="0" step="1"></label><label>Y<input id="py" type="number" value="0" step="1"></label>
+    <label>Rotation<input id="rot" type="number" value="0" step="1"></label><label>Scale<input id="scale" type="number" value="1" step=".01"></label>
+    <label>Opacity<input id="opacity" type="number" value="1" min="0" max="1" step=".01"></label><label>Blend<select id="blend"><option>source-over</option><option>multiply</option><option>screen</option><option>overlay</option><option>lighter</option></select></label>
+   </div>
+   <div class="row"><input id="lname" type="text" value="Layer 1" onchange="renameLayer()"></div>
+  </div>
+  <div class="section"><div class="title">Brush</div>
+   <div class="row">Color <input id="color" type="color" value="#111111"> Size <input id="size" type="number" value="8" min="1" max="200" style="width:65px"></div>
+   <div class="row"><label><input id="fillShapes" type="checkbox"> Fill shapes</label><label><input id="onion" type="checkbox" checked> Onion skin</label></div>
+   <div id="palette"></div>
+  </div>
+  <div class="section"><div class="title">Animation</div>
+   <div class="grid"><label>FPS<input id="fps" type="number" value="24" min="1" max="120"></label><label>End<input id="end" type="number" value="120" min="1"></label></div>
+   <div class="row"><button onclick="insertKey()">Insert Key</button><button onclick="deleteKey()">Delete Key</button></div>
+  </div>
+</aside>
+</div>
+<div id="timeline">
+ <div id="controls">
+  <button onclick="step(-1)">◀</button><button id="play" onclick="togglePlay()">▶</button><button onclick="step(1)">▶</button>
+  <span>Frame</span><input id="frame" class="tiny" type="number" value="1" min="1">
+  <button onclick="copyFrame()">Copy</button><button onclick="pasteFrame()">Paste</button><button onclick="duplicateFrame()">Duplicate</button>
+ </div>
+ <div id="frames"><div id="track"></div></div>
+</div>
+</div>
+<input id="file" type="file" accept=".json,application/json" hidden>
+<script>
+const C=document.getElementById('canvas'),ctx=C.getContext('2d');
+let S={frame:1,fps:24,end:120,tool:'brush',color:'#111111',size:8,layers:[],sel:0,undo:[],redo:[],playing:false};
+let drawing=false,start=null,current=[],timer=null,clipboard=null;
+function layer(name){return{name,visible:true,opacity:1,x:0,y:0,rotation:0,scale:1,blend:'source-over',frames:{},keys:{}}}
+function newProject(){S={frame:1,fps:24,end:120,tool:'brush',color:'#111111',size:8,layers:[layer('Layer 1')],sel:0,undo:[],redo:[],playing:false};render();pushHistory()}
+function snapshot(){return JSON.stringify({frame:S.frame,fps:S.fps,end:S.end,layers:S.layers,sel:S.sel,color:S.color,size:S.size})}
+function restore(x){const a=JSON.parse(x);Object.assign(S,a);render()}
+function pushHistory(){S.undo.push(snapshot());if(S.undo.length>40)S.undo.shift();S.redo=[]}
+function undo(){if(S.undo.length<2)return;const now=S.undo.pop();S.redo.push(now);restore(S.undo[S.undo.length-1])}
+function redo(){if(!S.redo.length)return;const x=S.redo.pop();S.undo.push(x);restore(x)}
+function cur(){return S.layers[S.sel]}
+function frameData(l,f=S.frame){return l.frames[f]||null}
+function render(){
+ ctx.clearRect(0,0,C.width,C.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,C.width,C.height);
+ for(let i=0;i<S.layers.length;i++)drawLayer(S.layers[i],i);
+ syncUI();timeline();document.getElementById('info').textContent='Frame '+S.frame;
+}
+function drawLayer(l,i){
+ if(!l.visible)return;let d=l.frames[S.frame];if(!d){let k=Object.keys(l.frames).map(Number).filter(n=>n<=S.frame).sort((a,b)=>b-a)[0];d=k?l.frames[k]:null}
+ if(!d)return;ctx.save();ctx.globalAlpha=l.opacity;ctx.globalCompositeOperation=l.blend;ctx.translate(C.width/2+l.x,C.height/2+l.y);ctx.rotate(l.rotation*Math.PI/180);ctx.scale(l.scale,l.scale);ctx.translate(-C.width/2,-C.height/2);
+ if(S.onion&&S.frame>1){let p=l.frames[S.frame-1];if(p){ctx.globalAlpha=.15;drawStrokes(p);}}
+ ctx.globalAlpha=l.opacity;drawStrokes(d);ctx.restore()
+}
+function drawStrokes(d){
+ for(const s of d){
+  ctx.beginPath();ctx.lineWidth=s.size;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=s.color;ctx.fillStyle=s.color;
+  if(s.type==='path'){if(!s.pts.length)continue;ctx.moveTo(s.pts[0][0],s.pts[0][1]);for(let i=1;i<s.pts.length;i++)ctx.lineTo(s.pts[i][0],s.pts[i][1]);ctx.stroke();if(s.fill&&s.pts.length>2){ctx.closePath();ctx.fill()}}
+  else if(s.type==='line'){ctx.moveTo(s.x1,s.y1);ctx.lineTo(s.x2,s.y2);ctx.stroke()}
+  else if(s.type==='rect'){ctx.rect(s.x,s.y,s.w,s.h);s.fill?ctx.fill():ctx.stroke()}
+  else if(s.type==='ellipse'){ctx.ellipse(s.x,s.y,Math.abs(s.rx),Math.abs(s.ry),0,0,Math.PI*2);s.fill?ctx.fill():ctx.stroke()}
+ }
+}
+function pos(e){const r=C.getBoundingClientRect();return[(e.clientX-r.left)*C.width/r.width,(e.clientY-r.top)*C.height/r.height]}
+function ensureFrame(){if(!cur().frames[S.frame])cur().frames[S.frame]=[]}
+function pointerDown(e){if(e.button!==0)return;drawing=true;start=pos(e);current=[];ensureFrame();if(S.tool==='brush'||S.tool==='eraser'){current.push(start);cur().frames[S.frame].push({type:'path',pts:current,color:S.tool==='eraser'?'#fff':S.color,size:S.tool==='eraser'?Math.max(S.size,20):S.size,fill:false});}else if(S.tool==='move'||S.tool==='rotate'||S.tool==='scale'){startTransform=start}}
+function pointerMove(e){if(!drawing)return;const p=pos(e);if(S.tool==='brush'||S.tool==='eraser'){current.push(p);render();}else if(['line','rect','ellipse'].includes(S.tool)){render();drawPreview(start,p)}else if(S.tool==='move'){cur().x+=(p[0]-startTransform[0]);cur().y+=(p[1]-startTransform[1]);startTransform=p;render()}else if(S.tool==='rotate'){cur().rotation+=(p[0]-startTransform[0]);startTransform=p;render()}else if(S.tool==='scale'){cur().scale=Math.max(.05,cur().scale+(p[0]-startTransform[0])*.01);startTransform=p;render()}}
+function pointerUp(e){if(!drawing)return;drawing=false;const p=pos(e);if(['line','rect','ellipse'].includes(S.tool)){let d=cur().frames[S.frame];if(S.tool==='line')d.push({type:'line',x1:start[0],y1:start[1],x2:p[0],y2:p[1],color:S.color,size:S.size});if(S.tool==='rect')d.push({type:'rect',x:Math.min(start[0],p[0]),y:Math.min(start[1],p[1]),w:Math.abs(p[0]-start[0]),h:Math.abs(p[1]-start[1]),color:S.color,size:S.size,fill:fillShapes.checked});if(S.tool==='ellipse')d.push({type:'ellipse',x:(start[0]+p[0])/2,y:(start[1]+p[1])/2,rx:Math.abs(p[0]-start[0])/2,ry:Math.abs(p[1]-start[1])/2,color:S.color,size:S.size,fill:fillShapes.checked})}else if(S.tool==='fill'){bucket(p)}pushHistory();render()}
+function drawPreview(a,b){ctx.save();ctx.globalAlpha=.6;ctx.strokeStyle=S.color;ctx.lineWidth=S.size;ctx.setLineDash([6,4]);ctx.beginPath();if(S.tool==='line'){ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1])}if(S.tool==='rect')ctx.rect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(b[0]-a[0]),Math.abs(b[1]-a[1]));if(S.tool==='ellipse')ctx.ellipse((a[0]+b[0])/2,(a[1]+b[1])/2,Math.abs(b[0]-a[0])/2,Math.abs(b[1]-a[1])/2,0,0,Math.PI*2);ctx.stroke();ctx.restore()}
+function bucket(p){ensureFrame();cur().frames[S.frame].push({type:'rect',x:p[0]-80,y:p[1]-50,w:160,h:100,color:S.color,size:1,fill:true})}
+let startTransform=null;
+C.addEventListener('pointerdown',pointerDown);C.addEventListener('pointermove',pointerMove);window.addEventListener('pointerup',pointerUp);
+document.querySelectorAll('#tools button').forEach(b=>b.onclick=()=>{S.tool=b.dataset.tool;document.querySelectorAll('#tools button').forEach(x=>x.classList.remove('active'));b.classList.add('active')});
+function syncUI(){const l=cur();if(!l)return;lname.value=l.name;px.value=l.x;py.value=l.y;rot.value=l.rotation;scale.value=l.scale;opacity.value=l.opacity;blend.value=l.blend;frame.value=S.frame;fps.value=S.fps;end.value=S.end;color.value=S.color;size.value=S.size}
+[px,py,rot,scale,opacity,blend].forEach(x=>x.onchange=()=>{let l=cur();l.x=+px.value;l.y=+py.value;l.rotation=+rot.value;l.scale=+scale.value;l.opacity=+opacity.value;l.blend=blend.value;pushHistory();render()});
+frame.onchange=()=>go(+frame.value);fps.onchange=()=>{S.fps=Math.max(1,+fps.value);render()};end.onchange=()=>{S.end=Math.max(1,+end.value);render()};color.oninput=()=>S.color=color.value;size.oninput=()=>S.size=+size.value;
+function go(f){S.frame=Math.max(1,Math.min(S.end,f));render()}
+function step(n){go(S.frame+n)}
+function togglePlay(){S.playing=!S.playing;play.textContent=S.playing?'❚❚':'▶';if(S.playing){clearInterval(timer);timer=setInterval(()=>{if(S.frame>=S.end){S.playing=false;play.textContent='▶';clearInterval(timer)}else go(S.frame+1)},1000/S.fps)}else clearInterval(timer)}
+function addLayer(){S.layers.push(layer('Layer '+(S.layers.length+1)));S.sel=S.layers.length-1;pushHistory();render()}
+function duplicateLayer(){const l=JSON.parse(JSON.stringify(cur()));l.name+=' Copy';S.layers.splice(S.sel+1,0,l);S.sel++;pushHistory();render()}
+function deleteLayer(){if(S.layers.length===1)return;S.layers.splice(S.sel,1);S.sel=Math.max(0,S.sel-1);pushHistory();render()}
+function renameLayer(){cur().name=lname.value;pushHistory();render()}
+function insertKey(){ensureFrame();if(!cur().frames[S.frame])cur().frames[S.frame]=[];pushHistory();render()}
+function deleteKey(){delete cur().frames[S.frame];pushHistory();render()}
+function copyFrame(){clipboard=JSON.stringify(cur().frames[S.frame]||[])}
+function pasteFrame(){if(!clipboard)return;cur().frames[S.frame]=JSON.parse(clipboard);pushHistory();render()}
+function duplicateFrame(){clipboard=JSON.stringify(cur().frames[S.frame]||[]);go(S.frame+1);pasteFrame()}
+function timeline(){const t=document.getElementById('track');t.innerHTML='';const ruler=document.createElement('div');ruler.className='ruler';for(let f=1;f<=S.end;f+=5){let x=document.createElement('div');x.className='tick';x.style.left=(f-1)*24+'px';x.textContent=f;ruler.appendChild(x)}t.appendChild(ruler);S.layers.forEach((l,i)=>{let row=document.createElement('div');row.className='layerrow';for(const f of Object.keys(l.frames)){let c=document.createElement('div');c.className='cell key';c.style.left=(+f-1)*24+'px';c.onclick=()=>go(+f);row.appendChild(c)}t.appendChild(row)});let ph=document.createElement('div');ph.className='playhead';ph.style.left=(S.frame-1)*24+'px';t.appendChild(ph)}
+function renderLayers(){layers.innerHTML='';S.layers.slice().reverse().forEach((l,ri)=>{const i=S.layers.length-1-ri;let d=document.createElement('div');d.className='layer '+(i===S.sel?'sel':'');d.innerHTML='<span>'+ (l.visible?'👁':'◌') +'</span><span class="name"></span>';d.querySelector('.name').textContent=l.name;d.onclick=()=>{S.sel=i;render()};layers.appendChild(d)})}
+const oldRender=render;render=function(){oldRender();renderLayers();};
+function saveProject(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});download(blob,'keyframe-project.json')}
+function openProject(){file.onchange=()=>{const r=new FileReader();r.onload=()=>{S=JSON.parse(r.result);S.undo=[];S.redo=[];render()};r.readAsText(file.files[0])};file.click()}
+function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function exportPNG(){render();C.toBlob(b=>download(b,'frame-'+S.frame+'.png'),'image/png')}
+async function exportWebM(){const stream=C.captureStream(S.fps);const rec=new MediaRecorder(stream,{mimeType:'video/webm'});let chunks=[];rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);rec.onstop=()=>download(new Blob(chunks,{type:'video/webm'}),'animation.webm');rec.start();let f=S.frame;const old=S.playing;for(let i=f;i<=S.end;i++){go(i);await new Promise(r=>setTimeout(r,1000/S.fps))}rec.stop();S.playing=old;go(f)}
+document.addEventListener('keydown',e=>{if(e.target.matches('input,select'))return;const k=e.key.toLowerCase();if(k==='b')S.tool='brush';if(k==='e')S.tool='eraser';if(k==='g')S.tool='move';if(k==='r')S.tool='rotate';if(k==='s')S.tool='scale';if(k===' ')togglePlay();if(e.key==='ArrowRight')step(1);if(e.key==='ArrowLeft')step(-1);document.querySelectorAll('#tools button').forEach(b=>b.classList.toggle('active',b.dataset.tool===S.tool))});
+['#e53935','#ff9800','#fdd835','#43a047','#1e88e5','#8e24aa','#111111','#ffffff'].forEach(c=>{let s=document.createElement('span');s.className='sw';s.style.background=c;s.onclick=()=>{S.color=c;color.value=c};palette.appendChild(s)});
+newProject();
+</script>
+</body>
 </html>
