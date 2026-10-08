@@ -500,10 +500,8 @@ function App() {
   const applyFillAt = useCallback((x: number, y: number) => {
     if (!currentFrame || !activeLayer || activeLayer.locked || !activeLayer.visible) return;
     const sourceLayers = fillMode === "all" ? project.layers.filter((layer) => layer.visible) : [activeLayer];
-    const candidates = sourceLayers.flatMap((sourceLayer) => (currentFrame.cels[sourceLayer.id] ?? []).map((stroke, index) => ({ stroke, index, layerId: sourceLayer.id })) )
-      .filter(({ stroke }) => stroke.tool !== "fill" && stroke.points.length >= 3)
+    const candidates = sourceLayers.flatMap((sourceLayer) => (currentFrame.cels[sourceLayer.id] ?? []).map((stroke, index) => ({ stroke, index, layerId: sourceLayer.id })))
       .map(({ stroke, index, layerId }) => {
-      .map((stroke, index) => {
         if (stroke.tool === "fill" || stroke.points.length < 3) return null;
         const first = stroke.points[0];
         const last = stroke.points.at(-1)!;
