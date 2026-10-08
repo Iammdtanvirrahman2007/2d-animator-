@@ -934,6 +934,7 @@ function App() {
               <span className="frame-count">{project.frames.length} {project.frames.length === 1 ? "frame" : "frames"}</span>
             </div>
             <div className="timeline-actions">
+              <button type="button" className="timeline-jump-button" title="First frame (Home)" aria-label="First frame" onClick={() => goToFrame(0)} disabled={currentFrameIndex === 0}>|◀</button>
               <button
                 type="button"
                 className="transport-button"
@@ -963,7 +964,12 @@ function App() {
               >
                 <ChevronRight size={17} />
               </button>
+              <button type="button" className="timeline-jump-button" title="Last frame (End)" aria-label="Last frame" onClick={() => goToFrame(project.frames.length - 1)} disabled={currentFrameIndex === project.frames.length - 1}>▶|</button>
               <span className="action-divider dark" />
+              <label className="frame-number-control" title="Current frame">
+                <span>FRAME</span>
+                <input aria-label="Current frame number" type="number" min="1" max={project.frames.length} value={currentFrameIndex + 1} onChange={(event) => goToFrame(Number(event.currentTarget.value) - 1)} />
+              </label>
               <label className="fps-control">
                 <span>FPS</span>
                 <select value={project.fps} onChange={changeFrameRate} aria-label="Frames per second">
@@ -982,6 +988,16 @@ function App() {
                 LOOP <span className={`loop-indicator ${project.loop ? "on" : ""}`} />
               </button>
               <span className="action-divider dark" />
+              <label className="range-control" title="Playback start frame">
+                <span>IN</span>
+                <input aria-label="Playback start frame" type="number" min="1" max={project.frames.length} value={playbackStart + 1} onChange={(event) => setPlaybackStart(Math.max(0, Math.min(playbackEnd, Number(event.currentTarget.value) - 1)))} />
+              </label>
+              <label className="range-control" title="Playback end frame">
+                <span>OUT</span>
+                <input aria-label="Playback end frame" type="number" min="1" max={project.frames.length} value={playbackEnd + 1} onChange={(event) => setPlaybackEnd(Math.min(project.frames.length - 1, Math.max(playbackStart, Number(event.currentTarget.value) - 1)))} />
+              </label>
+              <button type="button" className="timeline-icon-action" title="Zoom timeline out" aria-label="Zoom timeline out" onClick={() => setTimelineZoom((value) => Math.max(0.6, Number((value - 0.2).toFixed(1))))}>−</button>
+              <button type="button" className="timeline-icon-action" title="Zoom timeline in" aria-label="Zoom timeline in" onClick={() => setTimelineZoom((value) => Math.min(2.5, Number((value + 0.2).toFixed(1))))}>＋</button>
               <button type="button" className="timeline-icon-action" title="Move frame earlier" aria-label="Move frame earlier" onClick={() => moveFrame(-1)} disabled={currentFrameIndex === 0}>
                 <MoveUp size={15} />
               </button>
@@ -999,7 +1015,7 @@ function App() {
           <div className="timeline-strip">
             <div className="frame-ruler">
               <span className="ruler-layer-label"><Layers size={13} /> CEL</span>
-              <div className="ruler-cells" ref={timelineRef}>
+              <div className="ruler-cells" ref={timelineRef} style={{ "--timeline-scale": timelineZoom } as CSSProperties}>
                 {project.frames.map((frame, index) => (
                   <button
                     type="button"
