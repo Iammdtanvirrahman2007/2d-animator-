@@ -161,6 +161,9 @@ function App() {
   const [onionSkin, setOnionSkin] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [playbackStart, setPlaybackStart] = useState(0);
+  const [playbackEnd, setPlaybackEnd] = useState(Math.max(0, initial.project.frames.length - 1));
   const [stageSize, setStageSize] = useState(640);
   const [modal, setModal] = useState<ModalName>(null);
   const [transparentExport, setTransparentExport] = useState(false);
@@ -316,18 +319,26 @@ function App() {
   }, [activeLayerId, currentFrameId, currentFrameIndex, project]);
 
   useEffect(() => {
+    const maxFrame = Math.max(0, project.frames.length - 1);
+    setPlaybackStart((value) => Math.min(value, maxFrame));
+    setPlaybackEnd((value) => Math.max(Math.min(value, maxFrame), Math.min(playbackStart, maxFrame)));
+  }, [project.frames.length, playbackStart]);
+
+  useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(() => {
       setCurrentFrameId((frameId) => {
         const index = project.frames.findIndex((frame) => frame.id === frameId);
-        if (index < project.frames.length - 1) return project.frames[index + 1].id;
-        if (project.loop) return project.frames[0].id;
+        const start = Math.min(playbackStart, project.frames.length - 1);
+        const end = Math.max(start, Math.min(playbackEnd, project.frames.length - 1));
+        if (index < end) return project.frames[index + 1].id;
+        if (project.loop) return project.frames[start].id;
         setPlaying(false);
         return frameId;
       });
     }, 1000 / project.fps);
     return () => window.clearInterval(timer);
-  }, [playing, project.fps, project.frames, project.loop]);
+  }, [playing, playbackEnd, playbackStart, project.fps, project.frames, project.loop]);
 
   useEffect(() => {
     const selected = timelineRef.current?.querySelector<HTMLElement>(
@@ -357,6 +368,12 @@ function App() {
     () => historyCursorRef.current < historyRef.current.length - 1,
     [historyVersion],
   );
+
+  const goToFrame = useCallback((index: number) => {
+    const clamped = Math.max(0, Math.min(project.frames.length - 1, Math.round(index)));
+    setCurrentFrameId(project.frames[clamped].id);
+    setPlaying(false);
+  }, [project.frames]);
 
   const addFrame = useCallback(
     (duplicate: boolean) => {
@@ -753,16 +770,31 @@ function App() {
         setPlaying((value) => !value);
       } else if (event.key.toLowerCase() === "b") {
         setTool("brush");
+        setObjectMode(false);
+        setSelectedStrokeIds([]);
+      } else if (event.key.toLowerCase() === "w") {
+        setObjectMode((value) => !value);
+        setSelectedStrokeIds([]);
       } else if (event.key.toLowerCase() === "e") {
         setTool((value) => (value === "eraser" ? "brush" : "eraser"));
       } else if (event.key.toLowerCase() === "f") {
         addFrame(false);
       } else if (event.key.toLowerCase() === "d" && event.shiftKey) {
         addFrame(true);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        goToFrame(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        goToFrame(project.frames.length - 1);
+      } else if (event.key === "ArrowLeft" && event.shiftKey) {
+        setPlaybackStart(currentFrameIndex);
+      } else if (event.key === "ArrowRight" && event.shiftKey) {
+        setPlaybackEnd(currentFrameIndex);
       } else if (event.key === "[") {
-        setCurrentFrameId(project.frames[Math.max(0, currentFrameIndex - 1)].id);
+        goToFrame(currentFrameIndex - 1);
       } else if (event.key === "]") {
-        setCurrentFrameId(project.frames[Math.min(project.frames.length - 1, currentFrameIndex + 1)].id);
+        goToFrame(currentFrameIndex + 1);
       } else if (event.key === "+" || event.key === "=") {
         setZoom((value) => Math.min(2.5, Math.round((value + 0.1) * 10) / 10));
       } else if (event.key === "-") {
@@ -771,7 +803,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [addFrame, currentFrameIndex, project.frames, redo, undo]);
+  }, [addFrame, currentFrameIndex, goToFrame, project.frames, redo, undo]);
 
   const allStrokes = project.frames.flatMap((frame) =>
     Object.values(frame.cels).flatMap((strokes) => strokes),
