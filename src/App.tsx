@@ -867,6 +867,18 @@ function App() {
         <nav className="tool-rail" aria-label="Drawing tools">
           <div className="tool-rail-heading">TOOLS</div>
           <button
+            className={`tool-button ${objectMode ? "selected" : ""}`}
+            type="button"
+            aria-label="Object mode"
+            aria-pressed={objectMode}
+            title="Object Mode (W)"
+            onClick={() => { setObjectMode((value) => !value); setSelectedStrokeIds([]); }}
+          >
+            <MoveUp size={19} />
+            <span>Object</span>
+            <kbd>W</kbd>
+          </button>
+          <button
             className={`tool-button ${tool === "brush" ? "selected" : ""}`}
             type="button"
             aria-label="Brush tool"
@@ -925,6 +937,18 @@ function App() {
               </div>
             </div>
             <div className="stage-controls">
+              {objectMode && selectedStrokeIds.length > 0 && (
+                <>
+                  <span className="object-selection-label">{selectedStrokeIds.length} object{selectedStrokeIds.length > 1 ? "s" : ""}</span>
+                  <button type="button" className="small-toggle" title="Rotate left 15°" onClick={() => rotateSelected(-15)}>↶ 15°</button>
+                  <button type="button" className="small-toggle" title="Rotate right 15°" onClick={() => rotateSelected(15)}>↷ 15°</button>
+                  <button type="button" className="small-toggle" title="Scale down" onClick={() => scaleSelected(0.9)}>−10%</button>
+                  <button type="button" className="small-toggle" title="Scale up" onClick={() => scaleSelected(1.1)}>+10%</button>
+                  <button type="button" className="small-toggle" title="Duplicate selected objects" onClick={duplicateSelected}><Copy size={14} /> Duplicate</button>
+                  <button type="button" className="small-toggle" title="Delete selected objects" onClick={deleteSelected}><Trash2 size={14} /> Delete</button>
+                  <span className="toolbar-divider" />
+                </>
+              )}
               <button
                 type="button"
                 className={`small-toggle ${onionSkin ? "active" : ""}`}
