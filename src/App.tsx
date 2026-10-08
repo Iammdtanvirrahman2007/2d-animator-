@@ -863,9 +863,14 @@ function App() {
         setObjectMode(false);
         setSelectedStrokeIds([]);
       } else if (event.key.toLowerCase() === "g") {
-        setTool("fill");
-        setObjectMode(false);
-        setSelectedStrokeIds([]);
+        if (objectMode && selectedStrokeIds.length) {
+          setObjectTransformMode("move");
+          announce("Move mode", "info");
+        } else {
+          setTool("fill");
+          setObjectMode(false);
+          setSelectedStrokeIds([]);
+        }
       } else if (event.key.toLowerCase() === "w") {
         setObjectMode((value) => !value);
         setObjectTransformMode("select");
