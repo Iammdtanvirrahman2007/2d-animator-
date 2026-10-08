@@ -1,4 +1,4 @@
-export type DrawingTool = "brush" | "eraser";
+export type DrawingTool = "brush" | "eraser" | "fill";
 export type BrushKind = "pencil" | "ink" | "marker";
 
 export interface StrokePoint {
@@ -125,7 +125,7 @@ export function parseProject(value: unknown): AnimationProject {
             (stroke) =>
               !!stroke &&
               typeof stroke.id === "string" &&
-              ["brush", "eraser"].includes(stroke.tool) &&
+              ["brush", "eraser", "fill"].includes(stroke.tool) &&
               ["pencil", "ink", "marker"].includes(stroke.brush) &&
               typeof stroke.color === "string" &&
               /^#[\da-f]{6}$/i.test(stroke.color) &&
@@ -179,6 +179,18 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: Stroke): void {
   if (stroke.points.length === 0) return;
 
   context.save();
+  if (stroke.tool === "fill") {
+    context.globalCompositeOperation = "source-over";
+    context.globalAlpha = stroke.opacity / 100;
+    context.fillStyle = stroke.color;
+    context.beginPath();
+    context.moveTo(stroke.points[0].x, stroke.points[0].y);
+    for (let index = 1; index < stroke.points.length; index += 1) context.lineTo(stroke.points[index].x, stroke.points[index].y);
+    context.closePath();
+    context.fill();
+    context.restore();
+    return;
+  }
   context.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
   context.globalAlpha = stroke.tool === "eraser" ? 1 : stroke.opacity / 100;
   context.strokeStyle = stroke.color;
